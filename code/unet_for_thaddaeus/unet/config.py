@@ -38,3 +38,10 @@ class unet_config:
 
     def __init__(self):
         self.default_config()
+
+config_instance = unet_config()
+
+shape_xy = config_instance.shape_xy
+batch_input_shape = config_instance.batch_input_shape
+batch_size = config_instance.batch_size
+step_xy = config_instance.step_xy

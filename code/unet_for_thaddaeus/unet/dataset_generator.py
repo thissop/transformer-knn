@@ -1,7 +1,7 @@
 #    Author: Ankit Kariryaa, University of Bremen
 #    Edit: 2 branches: Sizhuo Li
 
-#from imgaug import augmenters as iaa
+from imgaug import augmenters as iaa
 import numpy as np
 
 
