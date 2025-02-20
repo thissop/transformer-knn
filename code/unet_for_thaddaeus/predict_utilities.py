@@ -1,17 +1,18 @@
 if __name__ == "__main__":
     exit()
 
-from unet.config import shape_xy, batch_input_shape, batch_size, step_xy
-from numpy import nan, float32, uint8, zeros, nanmean, mean, std, nanstd, ceil, squeeze, maximum, seterr, isnan, uint16
-from numpy.random import default_rng
+from os import environ
+environ['OPENBLAS_NUM_THREADS'] = '1' #NOTE(Jesse): Insanely, _importing numpy_ will spawn a threadpool of num_cpu threads and this is the 'preferred' mechanism to limit the thread count.
+
+from numpy import nan, float32, uint8, zeros, nanmean, mean, std, nanstd, ceil, squeeze, maximum, seterr, isnan
 from gc import collect
 seterr(all='raise')
 
-# renamed from august version: 
 def standardize_inplace(i):
+    assert i.dtype == float32, i.dtype
+    
     has_nans = i == 0
     no_data_count = has_nans.sum()
-    #no_data_count = 0
 
     if no_data_count == 0:
         for idx in range(i.shape[-1]):
@@ -25,34 +26,18 @@ def standardize_inplace(i):
                 f = i[..., idx]
                 f[:] = (f - nanmean(f)) / (nanstd(f) + 1e-9) #NOTE(Jesse): There are some blocks of raster texels which are same valued and NOT no-data.
 
-        i[has_nans] = -8
+        i[has_nans] = 0
 
-    assert not isnan(i).any()
+    #assert not isnan(i).any()
 
-def standardize_patch_copy(i):
-    ii = i.copy()
-    has_nans = ii == 0
-    no_data_count = has_nans.sum()
+def predict(batch_predict, raster, unet_ctx):
+    batch_size = unet_ctx.batch_size
+    batch_input_shape = unet_ctx.batch_input_shape
+    #unet_version = unet_ctx.UNet_version
 
-    if no_data_count == 0:
-        for idx in range(ii.shape[-1]):
-            f = ii[..., idx]
-            f[:] = (f - mean(f)) / (std(f) + 1e-9) #NOTE(Jesse): There are some blocks of raster texels which are same valued and NOT no-data.
-    else:
-        if no_data_count < ii.size:
-            ii[has_nans] = nan
+    shape_xy = batch_input_shape[0]
+    step_xy = unet_ctx.step_xy
 
-            for idx in range(ii.shape[-1]):
-                f = ii[..., idx]
-                f[:] = (f - nanmean(f)) / (nanstd(f) + 1e-9) #NOTE(Jesse): There are some blocks of raster texels which are same valued and NOT no-data.
-
-        ii[has_nans] = 0
-
-    assert not isnan(ii).any()
-    return ii
-
-def predict(batch_predict, raster):
-    batch_xy = batch_input_shape[0]
     batch = zeros((batch_size, *batch_input_shape), dtype=float32)
     end_patch = zeros(batch_input_shape, dtype=float32)
 
@@ -63,8 +48,9 @@ def predict(batch_predict, raster):
     tile_x = raster.shape[1]
     out_predictions = zeros((tile_y, tile_x), dtype=uint8)
 
-    #TODO(Jesse): This is curiously off by 4 or 5
-    guess_total_batch_count = ceil((tile_y * tile_x) / (step_xy * step_xy * batch_size))
+    #TODO(Jesse): Under estimate because each batch is comprised of a window size of shape_xy^2, but they overlap each other
+    # by 16 meters worth of pixels, so it's not just a matter of carving the tile into independent blocks as done here.
+    est_total_batch_count = ceil((tile_y * tile_x) / (step_xy * step_xy * batch_size))
 
     y0_out = x0_out = batch_idx = 0
     y1_out = x1_out = shape_xy
@@ -92,11 +78,13 @@ def predict(batch_predict, raster):
             if batch_idx == batch_size:
                 batch_idx = 0
 
-                standardize_batch_inplace(batch)
+                for b in batch:
+                    standardize_inplace(b)
+
                 predictions = squeeze(batch_predict(batch)) * 100
 
                 batch_count += 1
-                percent_done = int((batch_count / guess_total_batch_count) * 100)
+                percent_done = int((batch_count / est_total_batch_count) * 100)
                 if percent_done > last_percent_done:
                     last_percent_done = percent_done
 
@@ -125,17 +113,45 @@ def predict(batch_predict, raster):
                         assert y1_out != y0_out
 
     if batch_idx > 0: #NOTE(Jesse): Process partial final 'batch'
-        rng = default_rng()
-        randint = rng.integers
+        #NOTE(Jesse): Simple, deterministic, "best effort" filling of partial batch to fill in the remaining batch with locally relevant pixel data
+        for _ in range(batch_idx * 2 + (batch_size - batch_idx)): #NOTE(Jesse): "rewind" back through the tile
+            x0 -= step_xy
+            if x0 < 0:
+                x0 = tile_x - shape_xy
+                y0 -= step_xy
+                if y0 < 0:
+                    y0 = 0
+                    x0 = 0
+                    break
 
-        #NOTE(Jesse): A partial batch suffers from sqewed statistics due to reduced population size, so randomly sampler throughout the raster to increase population sample
         for b_idx in range(batch_idx, batch_size, 1):
-            r_y = randint(0, tile_y - batch_xy, dtype=uint16)
-            r_x = randint(0, tile_x - batch_xy, dtype=uint16)
-            batch[b_idx] = raster[r_y:r_y + batch_xy, r_x:r_x + batch_xy]
+            r = raster[y0:y0 + shape_xy, x0:x0 + shape_xy]
+            if r.shape[:2] != raster_xy_shape:
+                end_patch.fill(0)
+                end_patch[:r.shape[0], :r.shape[1]] = r
+                r = end_patch
 
-        standardize_batch_inplace(batch)
+            batch[b_idx] = r
+
+            x0 += step_xy
+            if x0 >= tile_x:
+                x0 = 0
+                y0 += step_xy
+                if y0 + step_xy > tile_y:
+                    if b_idx < batch_size - 1:
+                        batch[b_idx + 1:] = 0 #NOTE(Jesse): At this point, give up and set the remaining patches to no data.  If this happens, the tile input size is likely too small wrt batch size.
+                    break
+
+        #NOTE(Jesse): Process the whole batch as opposed to only the relevant parts to prevent CUDA recompiling a whole new UNET
+        # Then use only the relevant outputs.
+        #if unet_version == 3:
+        #    standardize_inplace(batch)
+        #else:
+        for b in batch:
+            standardize_inplace(b)
+
         predictions = squeeze(batch_predict(batch))[:batch_idx] * 100
+
         for p in predictions:
             p = p.astype(uint8)
             op = out_predictions[y0_out:y1_out, x0_out:x1_out]
@@ -161,7 +177,6 @@ def predict(batch_predict, raster):
 
 
 def DEPRECATED_calc_stats_for_training_data(predict_on_batch, rasters, rasters_empty, anno_bounds, training_fps, group: str):
-    from predict_utilities import predict
     from osgeo import gdal
     from unet.config import raster_shape
     from numpy import bool_, where, uint64
