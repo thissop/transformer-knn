@@ -1,7 +1,7 @@
 #NOTE(Jesse): The premise of this script is to train a CNN with the provided prepared training data.
 # The inputs are assumed to have been produced using the stage_1 script
 
-training_data_fp = "GitHub/transformer-knn/data"
+training_data_fp = "/home/tkiker/code/GitHub/transformer-knn/data"
 training_data_glob_match = "/annotation_*.png" #NOTE(Jesse): This string is appended to training_data_fp and is globbed to locate all matching files under the fp directory.
 
 model_weights_fp = None #NOTE(Jesse): Set to a weights training file for post-train
