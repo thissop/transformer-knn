@@ -1,1 +1,15 @@
 salloc --partition=gpu_a100 --constraint=rome --mem-per-gpu=122G --ntasks=1 --gres=gpu:1 -t720 --cpus-per-task=46
+source /gpfsm/dswdev/sacs/sw/etc/cespit-v2.5.sh
+
+Current Issue: 
+
+Begin training epoch 1.
+/discover/swdev/sacs/pyenvs/SLES-15/cespit-2.5/lib/python3.12/site-packages/keras/src/models/functional.py:238: UserWarning: The structure of `inputs` doesn't match the expected structure.
+Expected: ['input_scale1']
+Received: inputs=Tensor(shape=(128, 128, 128, 2))
+  warnings.warn(msg)
+/discover/swdev/sacs/pyenvs/SLES-15/cespit-2.5/lib/python3.12/site-packages/keras/src/models/functional.py:238: UserWarning: The structure of `inputs` doesn't match the expected structure.
+Expected: ['input_scale1']
+Received: inputs=Tensor(shape=(128, 128, 128, 2))
+  warnings.warn(msg)
+Could not load symbol cuFuncGetName. Error: /usr/lib64/libcuda.so.1: undefined symbol: cuFuncGetName
