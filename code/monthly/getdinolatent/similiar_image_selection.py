@@ -1,3 +1,28 @@
+def get_images(data_dir, img_type:str='pan'): 
+    import os
+    from PIL import Image
+    import numpy as np
+
+    image_cutouts = []
+
+    for file in os.listdir(data_dir): 
+        if img_type in file and "png" in file: 
+            file_path = os.path.join(data_dir, file)
+            try:
+                with Image.open(file_path) as img:
+                    width, height = img.size
+                    if width >= 244 and height >= 244:
+                        cutout = img.crop((0, 0, 244, 244))
+                        cutout_array = np.array(cutout)
+                        image_cutouts.append(cutout_array)
+            except Exception as e:
+                print(f"Error for {file_path}: {e}")
+
+    image_cutouts = np.array(image_cutouts)
+    np.random.shuffle(image_cutouts)
+
+    return image_cutouts
+
 def get_features(tiles):
     import torch 
 
@@ -46,11 +71,11 @@ def get_distances(features, index:int=None, n_closest:int=5):
     else: 
         return distances 
 
-
-def comparision_plot(tiles, features, index:int, closest_indices, plot_path:str=None):
+def comparision_plot(tiles, features, index:int, closest_indices, plot_dir:str=None):
     import numpy as np
     import matplotlib.pyplot as plt
     import smplotlib 
+    import os 
 
     n = len(closest_indices)
 
@@ -69,17 +94,27 @@ def comparision_plot(tiles, features, index:int, closest_indices, plot_path:str=
         axs[i+1].set_xticklabels([])
         axs[i+1].set_yticklabels([])
 
-    if plot_path is not None: 
-        plt.savefig(plot_path)
+    if plot_dir is not None: 
+        plt.savefig(os.path.join(plot_dir, f'comparison_i={index}.png'))
 
     plt.show()
 
-images = None # list of 224x224 numpy arrays corresponding to the images we want to study.  
-query_index = None # index of the image in that array that we want to use as reference to draw comparisons from. my reccomendation is you make the array to be [reference_image, ... everything else you want to draw comparisons from ...]
+images = get_images(data_dir='/burg/home/tjk2147/src/GitHub/transformer-knn/data') 
 
 features = get_features(images)
 
+plot_dir = '/burg/home/tjk2147/src/GitHub/transformer-knn/code/monthly/getdinolatent/plots'
+
+query_index = 5
 distances, closest_indices = get_distances(features, index=query_index)
+comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
 
-# now, if you want you can plot some of them 
 
+query_index = 3
+distances, closest_indices = get_distances(features, index=query_index)
+comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
+
+
+query_index = 1
+distances, closest_indices = get_distances(features, index=query_index)
+comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
