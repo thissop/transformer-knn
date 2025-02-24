@@ -1,4 +1,4 @@
-def get_images(data_dir, img_type:str='pan', cutout_dir:str='cutout_images'): 
+def get_images(data_dir, img_type:str='pan', cutout_dir:str='/burg/home/tjk2147/src/GitHub/transformer-knn/code/monthly/getdinolatent/plots/cutout_images'): 
     import os
     from PIL import Image
     import numpy as np
@@ -8,22 +8,47 @@ def get_images(data_dir, img_type:str='pan', cutout_dir:str='cutout_images'):
     image_cutouts = []
     image_names = []
 
+    cutout_size = 244
+    max_cutouts_per_image = 3
+
     for file in os.listdir(data_dir): 
         if img_type in file and "png" in file: 
             file_path = os.path.join(data_dir, file)
             try:
                 with Image.open(file_path) as img:
                     width, height = img.size
-                    if width >= 244 and height >= 244:
-                        cutout = img.crop((0, 0, 244, 244))
-                        cutout_array = np.array(cutout)
-                        image_cutouts.append(cutout_array)
-                        
-                        image_name = file.replace('.png','')
-                        image_names.append(image_name)
 
-                        # Save cutout image to directory
-                        cutout.save(os.path.join(cutout_dir, f"{image_name}_cutout.png"))
+                    # Skip images smaller than cutout size
+                    if width < cutout_size or height < cutout_size:
+                        continue
+
+                    num_horizontal = width // cutout_size
+                    num_vertical = height // cutout_size
+
+                    cutout_count = 0
+                    for i in range(num_vertical):
+                        for j in range(num_horizontal):
+                            if cutout_count >= max_cutouts_per_image:
+                                break
+                            left = j * cutout_size
+                            upper = i * cutout_size
+                            right = left + cutout_size
+                            lower = upper + cutout_size
+
+                            cutout = img.crop((left, upper, right, lower))
+                            cutout_array = np.array(cutout)
+                            image_cutouts.append(cutout_array)
+
+                            image_name = file.replace('.png','') + f"_{cutout_count}"
+                            image_names.append(image_name)
+
+                            if cutout.mode != 'RGB':
+                                cutout = cutout.convert('RGB')
+                            cutout.save(os.path.join(cutout_dir, f"{image_name}_cutout.png"))
+
+                            cutout_count += 1
+                        if cutout_count >= max_cutouts_per_image:
+                            break
 
             except Exception as e:
                 print(f"Error for {file_path}: {e}")
@@ -119,19 +144,14 @@ features = get_features(images)
 import pickle 
 # save because matplotlib is being weird
 features_dict = {name: feature for name, feature in zip(image_names, features)}
-with open('features_dict.pkl', 'wb') as f:
+with open('/burg/home/tjk2147/src/GitHub/transformer-knn/code/monthly/getdinolatent/features_dict.pkl', 'wb') as f:
     pickle.dump(features_dict, f)
 
+print('about to make plots')
+
 plot_dir = '/burg/home/tjk2147/src/GitHub/transformer-knn/code/monthly/getdinolatent/plots'
+for query_index in range(0, int(len(images)/15)): 
+    distances, closest_indices = get_distances(features, index=query_index)
+    comparision_plot(images, features, index=query_index, closest_indices=closest_indices, plot_dir=plot_dir)
 
-query_index = 5
-distances, closest_indices = get_distances(features, index=query_index)
-comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
-
-query_index = 3
-distances, closest_indices = get_distances(features, index=query_index)
-comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
-
-query_index = 1
-distances, closest_indices = get_distances(features, index=query_index)
-comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
+print('made plots!')
