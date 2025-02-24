@@ -1,9 +1,12 @@
-def get_images(data_dir, img_type:str='pan'): 
+def get_images(data_dir, img_type:str='pan', cutout_dir:str='cutout_images'): 
     import os
     from PIL import Image
     import numpy as np
 
+    os.makedirs(cutout_dir, exist_ok=True)
+
     image_cutouts = []
+    image_names = []
 
     for file in os.listdir(data_dir): 
         if img_type in file and "png" in file: 
@@ -15,13 +18,24 @@ def get_images(data_dir, img_type:str='pan'):
                         cutout = img.crop((0, 0, 244, 244))
                         cutout_array = np.array(cutout)
                         image_cutouts.append(cutout_array)
+                        
+                        image_name = file.replace('.png','')
+                        image_names.append(image_name)
+
+                        # Save cutout image to directory
+                        cutout.save(os.path.join(cutout_dir, f"{image_name}_cutout.png"))
+
             except Exception as e:
                 print(f"Error for {file_path}: {e}")
 
     image_cutouts = np.array(image_cutouts)
-    np.random.shuffle(image_cutouts)
+    image_names = np.array(image_names)
 
-    return image_cutouts
+    indices = np.random.permutation(len(image_cutouts))
+    image_cutouts = image_cutouts[indices]
+    image_names = image_names[indices]
+
+    return image_cutouts, image_names
 
 def get_features(tiles):
     import torch 
@@ -74,7 +88,6 @@ def get_distances(features, index:int=None, n_closest:int=5):
 def comparision_plot(tiles, features, index:int, closest_indices, plot_dir:str=None):
     import numpy as np
     import matplotlib.pyplot as plt
-    import smplotlib 
     import os 
 
     n = len(closest_indices)
@@ -99,9 +112,15 @@ def comparision_plot(tiles, features, index:int, closest_indices, plot_dir:str=N
 
     plt.show()
 
-images = get_images(data_dir='/burg/home/tjk2147/src/GitHub/transformer-knn/data') 
+images, image_names = get_images(data_dir='/burg/home/tjk2147/src/GitHub/transformer-knn/data') 
 
 features = get_features(images)
+
+import pickle 
+# save because matplotlib is being weird
+features_dict = {name: feature for name, feature in zip(image_names, features)}
+with open('features_dict.pkl', 'wb') as f:
+    pickle.dump(features_dict, f)
 
 plot_dir = '/burg/home/tjk2147/src/GitHub/transformer-knn/code/monthly/getdinolatent/plots'
 
@@ -109,11 +128,9 @@ query_index = 5
 distances, closest_indices = get_distances(features, index=query_index)
 comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
 
-
 query_index = 3
 distances, closest_indices = get_distances(features, index=query_index)
 comparision_plot(images, features, index=query_index, closest_indices=5, plot_dir=plot_dir)
-
 
 query_index = 1
 distances, closest_indices = get_distances(features, index=query_index)
